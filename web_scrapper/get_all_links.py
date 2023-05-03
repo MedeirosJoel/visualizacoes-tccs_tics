@@ -41,22 +41,22 @@ def get_links(index, trys = 0) -> list:
 
     return [full_papper.format(link.get("href")) for link in soup]
 
-def get_all_links():
-    """Utilizando o offset das paginas de indices, adquire todos os links de trabalhos dessas paginas """
-    with Pool() as p:
-        final_list = p.map(get_links, index_offsets)
-    
-    return set([element for sublist in final_list for element in sublist])
-    
-         
-
 def write_on_file(links):
     with open('./web_scrapper/data/links.txt', 'w+') as file:
         file.writelines([link + '\n' for link in links])
 
-if __name__ == '__main__':
+def run(index_offsets=index_offsets):
+    """Utilizando o offset das paginas de indices, adquire todos os links de trabalhos dessas paginas """
     ini = time.time()
-    links = get_all_links()
+    
+    with Pool(processes=8) as p:
+        final_list = p.map(get_links, index_offsets)
+    
+    links = set([element for sublist in final_list for element in sublist])
+    
     write_on_file(links)
-    print(time.time()- ini)
+    print('o tempo para baixar ',time.time()- ini)
+
+if __name__ == '__main__':
+    a = run()
     
