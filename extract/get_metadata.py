@@ -4,25 +4,15 @@ import os
 import time
 import requests
 from queue import Queue
+
+from pandas import DataFrame
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-
 file_links_path = "./extract/data/links.txt"
 
-os.makedirs(os.path.dirname(file_links_path), exist_ok=True)
-
-with open(file_links_path, "r+") as file_links:
-    links = file_links.read().split("\n")
-
-
-def requests_retry_session(
-    retries=3,
-    backoff_factor=0.3,
-    status_forcelist=(500, 502, 503, 504),
-    session=None,
-):
+def requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500, 502, 503, 504), session=None):
     session = session or requests.Session()
     retry = Retry(
         total=retries,
@@ -41,13 +31,16 @@ def get_metadata_from_uri(uri: str):
     try:
         response = requests_retry_session().get(uri)
         response.raise_for_status()
-        df = pd.read_html(response.text, attrs={"class": "ds-includeSet-table"})
-        df = df[0].drop(2, axis=1).set_index(0).T
-        return df
+        tables = pd.read_html(response.text, attrs={"class": "ds-includeSet-table"})
+        if tables:
+            df = tables[0].drop(2, axis=1).set_index(0).T
+            return df
+        else:
+            print(f"Nenhuma tabela encontrada em {uri}")
+            return None
     except requests.exceptions.RequestException as e:
-        print(f'Erro ao fazer requisição para {uri}: {e}')
+        print(f"Erro ao fazer requisição para {uri}: {e}")
         return None
-
 
 def many_identical_columns_for_one_column(df):
     if df is None:
@@ -65,22 +58,25 @@ def many_identical_columns_for_one_column(df):
 
     return new_df
 
-
 def execute(link: str):
     try:
-        result = many_identical_columns_for_one_column(get_metadata_from_uri(link))
-        return result
+        df = get_metadata_from_uri(link)
+
+        if df is not None:
+            df = many_identical_columns_for_one_column(df)
+            return df
+        raise ValueError
     except Exception as e:
-        print(f'Erro ao processar o link {link}: {e}')
+        print(f"Erro ao processar o link {link}: {e}")
         return None
 
 
-def run_parallel(links=links, num_threads=8):
+def run_parallel(links, num_threads=8):
     ini = time.time()
     data = []
 
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        future_to_link = {executor.submit(execute, link): link for link in links[:-1]}
+        future_to_link = {executor.submit(execute, link): link for link in links}
         for future in as_completed(future_to_link):
             link = future_to_link[future]
             try:
@@ -88,31 +84,21 @@ def run_parallel(links=links, num_threads=8):
                 if result is not None:
                     data.append(result)
             except Exception as e:
-                print(f'Erro ao processar o link {link}: {e}')
+                print(f"Erro ao processar o link {link}: {e}")
 
-    print(time.time() - ini)
-    return pd.concat(data, ignore_index=True)
+    print(f"Tempo total: {time.time() - ini:.2f}s")
+    return pd.concat(data, ignore_index=True) if data else pd.DataFrame()
 
+def run_and_save():
+    with open(file_links_path, "r") as file_links:
+        links = file_links.read().strip().split("\n")
 
-def save_df(file_type: str, df: pd.DataFrame):
-    save_types = {
-        "xlsx": df.to_excel,
-        "csv": df.to_csv,
-        "json": df.to_json
-    }
-    save_path = f"/extract/data/dataframe.{file_type}"
-    save_function = save_types[file_type]
+    data: DataFrame = run_parallel(links)
 
-    if file_type == "csv":
-        save_function(save_path, index=False, sep=";")
-    else:
-        save_function(save_path, index=False)
-
-    print(f"Arquivo salvo em: {save_path}")
+    data.to_csv("./extract/data/metadata.csv", index=False, sep=';')
+    data.to_excel("./extract/data/metadata.xlsx", index=False)
+    data.to_pickle("./extract/data/metadata.pickle")
 
 
 if __name__ == "__main__":
-    b = run_parallel()
-    save_df("json", b)
-    save_df("xlsx", b)
-    save_df("csv", b)
+    run_and_save()

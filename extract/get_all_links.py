@@ -42,7 +42,7 @@ def get_links(index, trys = 0) -> list:
     return [full_papper.format(link.get("href")) for link in soup]
 
 def write_on_file(links):
-    with open('/data/links.txt', mode='w+') as file:
+    with open('./extract/data/links.txt', mode='w+') as file:
         file.writelines([link + '\n' for link in links])
 
 def run(index_offsets=index_offsets):
